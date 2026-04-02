@@ -867,7 +867,8 @@ async function callGemini(prompt,systemInstruction='',forceJson=false){
     contents:[{role:'user',parts:[{text:prompt}]}],
     generationConfig:genConfig
   };
-  if(systemInstruction) body.systemInstruction={parts:[{text:systemInstruction}]};
+  // Gemini v1 does not support systemInstruction field — prepend to prompt instead
+  if(systemInstruction) body.contents[0].parts[0].text = '[Instructions: '+systemInstruction+']\n\n'+body.contents[0].parts[0].text;
   let res;
   try{
     res=await fetch(`${GEMINI_URL}?key=${geminiKey}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -895,15 +896,21 @@ async function callGemini(prompt,systemInstruction='',forceJson=false){
 }
 async function callGeminiChat(messages,systemInstruction=''){
   if(!geminiKey){openApiModal();throw new Error('No API key.');}
-  // Gemini requires conversation to start with 'user' role — filter out leading assistant messages
+  // Gemini v1 does not support systemInstruction — prepend it as first user message
   const filtered=messages.filter(m=>m.role==='user'||m.role==='assistant');
-  // Ensure first message is from user
   const startIdx=filtered.findIndex(m=>m.role==='user');
   const trimmed=startIdx>=0?filtered.slice(startIdx):filtered;
-  const contents=trimmed.map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]}));
+  let contents=trimmed.map(m=>({role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]}));
+  // Inject system instruction as opening user/model pair so Gemini follows the persona
+  if(systemInstruction){
+    contents=[
+      {role:'user',parts:[{text:'[System] '+systemInstruction+' Please confirm you understand your role.'}]},
+      {role:'model',parts:[{text:'Understood! I am Eco Green, your friendly AI engineering mentor. How can I help you today? 😊'}]},
+      ...contents
+    ];
+  }
   if(!contents.length) throw new Error('No messages to send.');
   const body={contents,generationConfig:{maxOutputTokens:1200,temperature:0.9}};
-  if(systemInstruction) body.systemInstruction={parts:[{text:systemInstruction}]};
   let res;
   try{
     res=await fetch(`${GEMINI_URL}?key=${geminiKey}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
